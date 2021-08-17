@@ -18,6 +18,12 @@ from ox_utils.calibrate import CalibrationDataReader, QuantType
 from ox_utils.quant_utils import QuantFormat, QuantType
 from ox_utils.quantize import quantize_static
 
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
+                    datefmt = '%m/%d/%Y %H:%M:%S',
+                    level = logging.INFO)
 
 class ResNet50DataReader(CalibrationDataReader):
     def __init__(self, calibration_image_folder, augmented_model_path='augmented_model.onnx'):
@@ -82,15 +88,16 @@ def benchmark(model_path):
         _ = session.run([], {input_name: input_data})
         end = (time.perf_counter() - start) * 1000
         total += end
-        print(f"{end:.2f}ms")
+        logger.info(f"{end:.2f}ms")
     total /= runs
-    print(f"Avg: {total:.2f}ms")
+    logger.info(f"Avg: {total:.2f}ms")
 
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_model", required=True, help="input model")
     parser.add_argument("--output_model", required=True, help="output model")
+    parser.add_argument("--augmented_model", required=True, help="augmented model")
     parser.add_argument("--calibrate_dataset", default="./test_images", help="calibration data set")
     parser.add_argument("--quant_format",
                         default=QuantFormat.QOperator,
@@ -105,20 +112,21 @@ def main():
     args = get_args()
     input_model_path = args.input_model
     output_model_path = args.output_model
+    augmented_model_path = args.augmented_model
     calibration_dataset_path = args.calibrate_dataset
-    dr = ResNet50DataReader(calibration_dataset_path)
+    dr = ResNet50DataReader(calibration_dataset_path, augmented_model_path)
     quantize_static(input_model_path,
                     output_model_path,
                     dr,
                     quant_format=args.quant_format,
                     per_channel=args.per_channel,
                     weight_type=QuantType.QInt8)
-    print('Calibrated and quantized model saved.')
+    logger.info('Calibrated and quantized model saved.')
 
-    print('benchmarking fp32 model...')
+    logger.info('benchmarking fp32 model...')
     benchmark(input_model_path)
 
-    print('benchmarking int8 model...')
+    logger.info('benchmarking int8 model...')
     benchmark(output_model_path)
 
 
