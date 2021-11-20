@@ -12,7 +12,6 @@ from PIL import Image
 import onnx
 import onnxruntime
 from onnx import helper, TensorProto, numpy_helper
-# from onnxruntime.quantization import quantize_static, CalibrationDataReader, QuantFormat, QuantType
 
 from ox_utils.calibrate import CalibrationDataReader, QuantType
 from ox_utils.quant_utils import QuantFormat, QuantType
@@ -82,10 +81,10 @@ def benchmark(model_path):
     runs = 10
     input_data = np.zeros((1, 3, 224, 224), np.float32)
     # Warming up
-    _ = session.run([], {input_name: input_data})
+    result = session.run([], {input_name: input_data})
     for i in range(runs):
         start = time.perf_counter()
-        _ = session.run([], {input_name: input_data})
+        result = session.run([], {input_name: input_data})
         end = (time.perf_counter() - start) * 1000
         total += end
         logger.info(f"{end:.2f}ms")

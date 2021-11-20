@@ -10,7 +10,7 @@ import onnx
 import onnxruntime
 import argparse
 import time
-from ox_utils.calibrate import CalibrationDataReader
+from ox_utils.calibrate import CalibrationDataReader,CalibrationMethod
 from ox_utils.quant_utils import QuantFormat, QuantType
 from ox_utils.quantize import quantize_static
 
@@ -25,7 +25,6 @@ def get_args():
     parser.add_argument("--quant_format", type=QuantFormat.from_string, default=QuantFormat.QOperator, choices=list(QuantFormat))
     parser.add_argument("--per_channel", type=bool, default=False, help="whether quantize const operator with per channel")
     parser.add_argument("--fp32_model", required=True, help="fp32 model")
-    parser.add_argument("--augmented_model", required=True, help="fp32 model with min/max ")
     parser.add_argument("--int8_model", required=True, help="int8 model")
     parser.add_argument("--dataset", required=True, help="dataset")
     parser.add_argument("--calibration_dataset_size", type=int, default=1, help="size of dataset for calibration, the others are for prediction")
@@ -88,7 +87,6 @@ class ImageNetDataReader(CalibrationDataReader):
                  end_index=0,
                  stride=1,
                  batch_size=1,
-                 model_path='augmented_model.onnx',
                  input_name='data',
                  providers=['CPUExecutionProvider']):
         '''
@@ -99,13 +97,11 @@ class ImageNetDataReader(CalibrationDataReader):
         :param end_index: end index of images
         :param stride: image size of each data get 
         :param batch_size: batch size of inference
-        :param model_path: model name and path
         :param input_name: model input name
         :param providers: cpu/gpu to run
         '''
 
         self.image_folder = image_folder + "/val"
-        self.model_path = model_path
         self.preprocess_flag = True
         self.enum_data_dicts = iter([])
         self.datasize = 0
@@ -123,12 +119,6 @@ class ImageNetDataReader(CalibrationDataReader):
 
     def get_dataset_size(self):
         return len(os.listdir(self.image_folder))
-
-    def get_input_name(self):
-        if self.input_name:
-            return
-        session = onnxruntime.InferenceSession(self.model_path, self.providers)
-        self.input_name = session.get_inputs()[0].name
 
     def get_next(self):
         iter_data = next(self.enum_data_dicts, None)
@@ -219,7 +209,6 @@ class ImageNetDataReader(CalibrationDataReader):
             img = Image.open(image_filepath)
             if img.mode == 'CMYK':
                 img = img.convert('RGB')
-            # print("image_path: ", image_filepath)
             image_data = preprocess_images(img)
             image_data = np.expand_dims(image_data, 0)
             unconcatenated_batch_data.append(image_data)
@@ -254,7 +243,6 @@ class ImageNetDataReader(CalibrationDataReader):
         image_names = image_names[offset:offset + dataset_size]
         seq_num = []
         for file in image_names:
-            # print("file: ", file)
             seq_num.append(int(file.split("_")[-1].split(".")[0]))
         id = np.array([id[index - 1] for index in seq_num])
         synset_id = np.array([synset_to_id[id_to_synset[index]] for index in id])
@@ -350,7 +338,6 @@ if __name__ == '__main__':
     per_channel = args.per_channel
     fp32_model_path = args.fp32_model
     int8_model_path = args.int8_model
-    augmented_model_path = args.augmented_model
     dataset_path = args.dataset
     calibration_dataset_size = args.calibration_dataset_size
 
@@ -372,7 +359,6 @@ if __name__ == '__main__':
                                      end_index=calibration_dataset_size,
                                      stride=calibration_dataset_size,
                                      batch_size=batch_size,
-                                     model_path=augmented_model_path,
                                      input_name=input_name)
     logger.info('Quantize fp32 model to int8 model ...')
     quantize_static(dynamic_fp32_model_path,
@@ -380,7 +366,8 @@ if __name__ == '__main__':
                     calibration_data_reader,
                     quant_format=quant_format,
                     per_channel=per_channel,
-                    weight_type=QuantType.QInt8)
+                    weight_type=QuantType.QInt8,
+                    calibrate_method=CalibrationMethod.MinMax)
 
     # Prepare prediction data reader for fp32 model
     logger.info('Prepare prediction data reader for fp32 ...')
@@ -389,7 +376,6 @@ if __name__ == '__main__':
                                      end_index=calibration_dataset_size + prediction_dataset_size,
                                      stride=prediction_dataset_size,
                                      batch_size=batch_size,
-                                     model_path=dynamic_fp32_model_path,
                                      input_name=input_name)
     logger.info('Generate synset id for fp32 ...')
     fp32_synset_id = fp32_prediction_data_reader.get_synset_id(dataset_path, calibration_dataset_size,
@@ -409,7 +395,6 @@ if __name__ == '__main__':
                                      end_index=calibration_dataset_size + prediction_dataset_size,
                                      stride=prediction_dataset_size,
                                      batch_size=batch_size,
-                                     model_path=int8_model_path,
                                      input_name=input_name)
     logger.info('Generate synset id for int8 ...')
     int8_synset_id = int8_prediction_data_reader.get_synset_id(dataset_path, calibration_dataset_size,
